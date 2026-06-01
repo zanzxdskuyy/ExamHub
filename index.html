@@ -17,6 +17,7 @@
         body.dark-mode .card { background: #1e1e2f; color: #e0e0e0; }
         .btn-primary { background: linear-gradient(90deg, #667eea, #764ba2); border: none; color: white; font-weight: 600; padding: 12px 24px; border-radius: 40px; cursor: pointer; }
         .btn-secondary { background: #6c757d; border: none; color: white; padding: 10px 20px; border-radius: 40px; cursor: pointer; }
+        .btn-success { background: #28a745; border: none; color: white; padding: 10px 20px; border-radius: 40px; cursor: pointer; }
         .toggle-dark { position: fixed; top: 20px; right: 20px; background: white; border-radius: 60px; padding: 10px 18px; cursor: pointer; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         body.dark-mode .toggle-dark { background: #2d2d44; color: white; }
         input, select, textarea { width: 100%; padding: 12px 16px; margin: 8px 0; border-radius: 28px; border: 1px solid #ddd; background: #fefefe; }
@@ -28,6 +29,7 @@
         .soal-item, .kelas-item, .ujian-item { background: #f8f9ff; border-radius: 20px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #667eea; }
         body.dark-mode .soal-item, body.dark-mode .kelas-item, body.dark-mode .ujian-item { background: #2a2a38; border-left-color: #764ba2; }
         .timer { font-size: 2rem; font-weight: bold; text-align: center; margin: 15px 0; }
+        .kisi-item { background: #fff3cd; border-left-color: #ffc107; }
         @media (max-width: 768px) { .dashboard-grid { flex-direction: column; } .timer { font-size: 1.5rem; } }
     </style>
 </head>
@@ -38,10 +40,9 @@
 <div class="app-container" id="appRoot"></div>
 
 <script>
-    // ========== KONFIGURASI (GANTI INI!) ==========
-    // Masukkan ID Spreadsheet kamu di sini (dari URL Google Sheets)
-    const SPREADSHEET_ID = "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI";
-    // =============================================
+    // ========== KONFIGURASI DEFAULT ==========
+    let SPREADSHEET_ID = localStorage.getItem("examhub_sheet_id") || "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI";
+    let GROQ_API_KEY = localStorage.getItem("examhub_groq_key") || "";
     
     let currentUser = null;
     let bankSoal = [];
@@ -66,13 +67,12 @@
     
     // === Mengambil data dari Google Sheets via OpenSheet (TANPA API KEY!) ===
     async function fetchAkunSheet() {
-        if(!SPREADSHEET_ID) throw new Error("SPREADSHEET_ID belum diisi di kode");
+        if(!SPREADSHEET_ID || SPREADSHEET_ID === "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI") throw new Error("SPREADSHEET_ID belum diisi di Settings");
         const url = `https://opensheet.elk.sh/${SPREADSHEET_ID}/Akun`;
         const res = await fetch(url);
         if(!res.ok) throw new Error("Gagal mengambil data. Pastikan Sheet 'Akun' ada dan sudah di-share public");
         const data = await res.json();
         if(!data || data.length === 0) throw new Error("Tidak ada data di sheet Akun");
-        // OpenSheet mengembalikan array objek dengan header sebagai key
         return data.map(row => ({
             username: row.Username || "",
             password: row.Password || "",
@@ -83,10 +83,6 @@
     }
     
     async function simpanNilaiSheet(namaSiswa, kelas, namaUjian, nilai, tanggal) {
-        // Catatan: Untuk menulis ke sheet, tetap butuh API. Tapi kita simpan di localStorage dulu.
-        // Nanti bisa export manual. Atau bisa juga pakai webhook service.
-        console.log("Nilai tersimpan di localStorage:", {namaSiswa, kelas, namaUjian, nilai, tanggal});
-        // Simpan juga ke localStorage untuk rekap sementara
         let nilaiLocal = JSON.parse(localStorage.getItem(`examhub_nilai_${SPREADSHEET_ID}`) || '[]');
         nilaiLocal.push({namaSiswa, kelas, namaUjian, nilai, tanggal});
         localStorage.setItem(`examhub_nilai_${SPREADSHEET_ID}`, JSON.stringify(nilaiLocal));
@@ -94,8 +90,7 @@
     }
     
     async function ambilNilaiDariSheet() {
-        let nilaiLocal = JSON.parse(localStorage.getItem(`examhub_nilai_${SPREADSHEET_ID}`) || '[]');
-        return nilaiLocal;
+        return JSON.parse(localStorage.getItem(`examhub_nilai_${SPREADSHEET_ID}`) || '[]');
     }
     
     function toast(icon, title) {
@@ -111,29 +106,25 @@
             root.innerHTML = renderLoginPage();
             attachLoginEvents();
         } else if(currentUser.peran === "Guru"){
-            root.innerHTML = renderGuruDashboard();
+            if(currentView === "settings") root.innerHTML = renderSettingsPage();
+            else root.innerHTML = renderGuruDashboard();
             attachGuruEvents();
         } else if(currentUser.peran === "Siswa"){
             root.innerHTML = renderSiswaDashboard();
             attachSiswaEvents();
         }
         attachDarkModeToggle();
+        if(currentUser && currentView === "settings") attachSettingsEvents();
     }
     
     function renderLoginPage() {
         return `<div class="card" style="max-width:500px; margin:60px auto;">
             <div style="text-align:center"><i class="fas fa-graduation-cap" style="font-size:70px; background:linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip:text; background-clip:text; color:transparent;"></i><h1 style="margin-top:10px">ExamHub</h1><p style="color:#666; margin-bottom:30px;">Platform Latihan & Ujian Online</p></div>
             <div id="loginForm">
-                <input type="text" id="loginUsername" placeholder="Username" autocomplete="off">
+                <input type="text" id="loginUsername" placeholder="Username">
                 <input type="password" id="loginPassword" placeholder="Password">
-                <select id="loginPeran">
-                    <option value="Siswa">Siswa</option>
-                    <option value="Guru">Guru</option>
-                </select>
+                <select id="loginPeran"><option value="Siswa">Siswa</option><option value="Guru">Guru</option></select>
                 <button class="btn-primary" id="btnLogin" style="width:100%"><i class="fas fa-sign-in-alt"></i> Masuk</button>
-            </div>
-            <div style="text-align:center; margin-top:20px; font-size:12px; color:#888;">
-                <i class="fas fa-database"></i> Data dari Google Sheets (tanpa API Key)
             </div>
         </div>`;
     }
@@ -159,20 +150,55 @@
     
     function attachLoginEvents() {
         document.getElementById("btnLogin")?.addEventListener("click", handleLogin);
-        document.getElementById("loginPassword")?.addEventListener("keypress", (e) => { if(e.key === "Enter") handleLogin(); });
+    }
+    
+    // ========== SETTINGS PAGE ==========
+    function renderSettingsPage() {
+        return `<div class="card" style="max-width:700px; margin:auto"><h2><i class="fas fa-sliders-h"></i> Pengaturan API</h2>
+            <input id="setSheetId" placeholder="Google Sheets ID" value="${SPREADSHEET_ID}">
+            <input id="setGroqKey" placeholder="Groq API Key (untuk AI generate soal)" value="${GROQ_API_KEY}">
+            <div style="margin:15px 0; padding:10px; background:#e8f5e9; border-radius:16px;">
+                <small><i class="fas fa-info-circle"></i> OpenSheet digunakan sebagai pengganti Google Cloud. Cukup share spreadsheet ke "Anyone with link".</small>
+            </div>
+            <button id="testKoneksiBtn" class="btn-primary">Test Koneksi Spreadsheet</button>
+            <button id="saveSettingsBtn" class="btn-primary">Simpan</button>
+            <button id="backToDashBtn" class="btn-secondary">Kembali</button>
+        </div>`;
+    }
+    
+    function attachSettingsEvents() {
+        document.getElementById("saveSettingsBtn")?.addEventListener("click", () => {
+            const sheet = document.getElementById("setSheetId").value.trim();
+            const grok = document.getElementById("setGroqKey").value.trim();
+            if(sheet) { SPREADSHEET_ID = sheet; localStorage.setItem("examhub_sheet_id", sheet); }
+            if(grok) { GROQ_API_KEY = grok; localStorage.setItem("examhub_groq_key", grok); }
+            toast("success","Pengaturan disimpan");
+            currentView = "dashboardGuru";
+            render();
+        });
+        document.getElementById("testKoneksiBtn")?.addEventListener("click", async () => {
+            try {
+                const url = `https://opensheet.elk.sh/${document.getElementById("setSheetId").value.trim()}/Akun`;
+                const res = await fetch(url);
+                if(res.ok) toast("success","Koneksi ke Google Sheets berhasil!");
+                else throw new Error("Gagal");
+            } catch(e) { Swal.fire("Gagal", "Pastikan Sheet ID benar dan spreadsheet sudah di-share public", "error"); }
+        });
+        document.getElementById("backToDashBtn")?.addEventListener("click", () => { currentView = "dashboardGuru"; render(); });
     }
     
     // ========== GURU DASHBOARD ==========
     function renderGuruDashboard() {
-        return `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;"><h2><i class="fas fa-chalkboard-teacher"></i> Dashboard Guru, ${currentUser.namaLengkap}</h2><button id="logoutBtn" class="btn-secondary">Keluar</button></div>
-        <div class="dashboard-grid"><div class="sidebar card"><h3><i class="fas fa-school"></i> Kelas</h3><button id="buatKelasBtn" class="btn-primary" style="width:100%; margin-bottom:15px;">+ Buat Kelas Baru</button><div id="daftarKelasGuru"></div><hr><h3><i class="fas fa-database"></i> Bank Soal</h3><button id="buatSoalManualBtn" class="btn-secondary" style="width:100%;">+ Soal Manual</button><div id="daftarSoal" style="margin-top:15px;"></div></div>
+        return `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;"><h2><i class="fas fa-chalkboard-teacher"></i> Dashboard Guru, ${currentUser.namaLengkap}</h2><div><button id="guruSettingsBtn" class="btn-primary"><i class="fas fa-cog"></i> Settings</button> <button id="logoutBtn" class="btn-secondary">Keluar</button></div></div>
+        <div class="dashboard-grid"><div class="sidebar card"><h3><i class="fas fa-school"></i> Kelas</h3><button id="buatKelasBtn" class="btn-primary" style="width:100%; margin-bottom:15px;">+ Buat Kelas Baru</button><div id="daftarKelasGuru"></div><hr><h3><i class="fas fa-database"></i> Bank Soal</h3><button id="buatSoalManualBtn" class="btn-secondary" style="width:100%;">+ Soal Manual</button><button id="uploadKisiBtn" class="btn-primary" style="width:100%; margin-top:8px;"><i class="fas fa-robot"></i> AI dari Kisi-Kisi</button><button id="tempelSoalBtn" class="btn-success" style="width:100%; margin-top:8px;"><i class="fas fa-paste"></i> Tempel Soal</button><div id="daftarSoal" style="margin-top:15px; max-height:400px; overflow-y:auto;"></div></div>
         <div class="main-content card"><h3><i class="fas fa-pen-alt"></i> Ujian & Latihan</h3><button id="buatUjianBtn" class="btn-primary">Buat Ujian/Latihan</button><div id="daftarUjianGuru" style="margin-top:15px;"></div><hr><h3><i class="fas fa-chart-line"></i> Rekap Nilai</h3><button id="exportExcelBtn" class="btn-secondary"><i class="fas fa-file-excel"></i> Export Nilai (CSV)</button><div id="rekapNilai" style="margin-top:15px; overflow-x:auto;"></div></div></div>`;
     }
     
     function attachGuruEvents() {
         document.getElementById("logoutBtn")?.addEventListener("click", () => { localStorage.removeItem("examhub_session"); currentUser = null; render(); });
+        document.getElementById("guruSettingsBtn")?.addEventListener("click", () => { currentView = "settings"; render(); });
         document.getElementById("buatKelasBtn")?.addEventListener("click", async () => {
-            const { value: namaKelas } = await Swal.fire({ title: "Nama Kelas", input: "text", inputPlaceholder: "Contoh: XII IPA 1" });
+            const { value: namaKelas } = await Swal.fire({ title: "Nama Kelas", input: "text" });
             if(namaKelas) {
                 const kode = Math.random().toString(36).substring(2, 8).toUpperCase();
                 daftarKelasGuru.push({ kode, namaKelas, guruPembuat: currentUser.username, daftarSiswaUsernames: [] });
@@ -181,6 +207,8 @@
             }
         });
         document.getElementById("buatSoalManualBtn")?.addEventListener("click", buatSoalManual);
+        document.getElementById("uploadKisiBtn")?.addEventListener("click", uploadKisiKeAI);
+        document.getElementById("tempelSoalBtn")?.addEventListener("click", tempelSoal);
         document.getElementById("buatUjianBtn")?.addEventListener("click", buatUjian);
         document.getElementById("exportExcelBtn")?.addEventListener("click", exportNilaiKeCSV);
         renderGuruDashboardRefresh();
@@ -191,7 +219,7 @@
         if(kelasDiv) kelasDiv.innerHTML = daftarKelasGuru.map(k => `<div class="kelas-item"><b><i class="fas fa-key"></i> ${k.kode}</b> - ${k.namaKelas}<br><small>Siswa: ${k.daftarSiswaUsernames.join(", ") || "Belum ada"}</small></div>`).join("");
         
         const soalDiv = document.getElementById("daftarSoal");
-        if(soalDiv) soalDiv.innerHTML = bankSoal.map((s, i) => `<div class="soal-item"><b>${s.teks.substring(0, 50)}...</b> [${s.jenis}] <button class="hapusSoalBtn btn-secondary" data-id="${s.id}" style="padding:4px 12px; margin-top:5px;">Hapus</button></div>`).join("");
+        if(soalDiv) soalDiv.innerHTML = bankSoal.map((s, i) => `<div class="soal-item"><b>${s.teks.substring(0, 60)}...</b><br><small>[${s.jenis}]</small> <button class="hapusSoalBtn btn-secondary" data-id="${s.id}" style="padding:4px 12px; margin-top:5px;">Hapus</button></div>`).join("");
         document.querySelectorAll(".hapusSoalBtn").forEach(btn => btn.addEventListener("click", (e) => { bankSoal = bankSoal.filter(s => s.id != btn.getAttribute("data-id")); saveLocalData(); renderGuruDashboardRefresh(); }));
         
         const ujianDiv = document.getElementById("daftarUjianGuru");
@@ -203,9 +231,9 @@
     async function loadRekapNilai() {
         const dataNilai = await ambilNilaiDariSheet();
         if(dataNilai.length === 0) { document.getElementById("rekapNilai").innerHTML = "<i>Belum ada data nilai</i>"; return; }
-        let html = `<table style="width:100%; border-collapse:collapse;"><tr style="background:#667eea; color:white;"><th>Nama Siswa</th><th>Kelas</th><th>Ujian</th><th>Nilai</th><th>Tanggal</th></tr>`;
+        let html = `<table style="width:100%; border-collapse:collapse;"><tr style="background:#667eea; color:white;"><th>Nama Siswa</th><th>Kelas</th><th>Ujian</th><th>Nilai</th><th>Tanggal</th><tr>`;
         dataNilai.forEach(r => { html += `<tr><td>${r.namaSiswa}${r.namaSiswa}</td><td>${r.kelas}${r.kelas}</td><td>${r.namaUjian}${r.namaUjian}</td><td>${r.nilai}${r.nilai}</td><td>${r.tanggal}${r.tanggal}</td></tr>`; });
-        html += `他一钡`;
+        html += `闭纻`;
         document.getElementById("rekapNilai").innerHTML = html;
     }
     
@@ -223,9 +251,57 @@
         toast("success","Export CSV berhasil!");
     }
     
+    // === FITUR SOAL MANUAL ===
     async function buatSoalManual() {
         const { value: form } = await Swal.fire({ title: "Buat Soal Baru", html: `<input id="teks" placeholder="Pertanyaan"><select id="jenis"><option>Pilihan Ganda</option><option>Benar/Salah</option><option>Essay</option></select><input id="jawaban" placeholder="Jawaban"><input id="pembahasan" placeholder="Pembahasan">`, preConfirm: () => ({ teks: document.getElementById("teks").value, jenis: document.getElementById("jenis").value, jawaban: document.getElementById("jawaban").value, pembahasan: document.getElementById("pembahasan").value }) });
         if(form && form.teks) { bankSoal.push({ id: Date.now(), teks: form.teks, jenis: form.jenis, jawaban: form.jawaban, pembahasan: form.pembahasan }); saveLocalData(); renderGuruDashboardRefresh(); toast("success","Soal tersimpan"); }
+    }
+    
+    // === FITUR TEMPEL SOAL (Copy-Paste banyak soal) ===
+    async function tempelSoal() {
+        const { value: text } = await Swal.fire({ title: "Tempel Soal", input: "textarea", inputPlaceholder: "Format: pertanyaan | jenis | jawaban | pembahasan\nSetiap baris 1 soal, pisahkan dengan tanda |", inputLabel: "Contoh: Apa ibu kota Indonesia? | Pilihan Ganda | Jakarta | Ibukota negara" });
+        if(text) {
+            const lines = text.split('\n');
+            let added = 0;
+            for(let line of lines) {
+                const parts = line.split('|').map(p => p.trim());
+                if(parts.length >= 2) {
+                    bankSoal.push({ id: Date.now()+Math.random(), teks: parts[0], jenis: parts[1] || "Essay", jawaban: parts[2] || "", pembahasan: parts[3] || "" });
+                    added++;
+                }
+            }
+            saveLocalData();
+            renderGuruDashboardRefresh();
+            toast("success",`${added} soal berhasil ditambahkan!`);
+        }
+    }
+    
+    // === FITUR AI DARI KISI-KISI ===
+    async function uploadKisiKeAI() {
+        if(!GROQ_API_KEY) { toast("error","Masukkan Groq API Key di Settings dulu!"); return; }
+        const { value: kisi } = await Swal.fire({ title: "Masukkan Kisi-Kisi", input: "textarea", inputPlaceholder: "Tulis kisi-kisi soal di sini...\nContoh:\n1. Pengertian sel\n2. Fungsi mitokondria\n3. Perbedaan sel hewan dan tumbuhan", inputLabel: "AI akan membuat soal pilihan ganda dari kisi-kisi ini", inputAttributes: { rows: 8 } });
+        if(!kisi) return;
+        const { value: jumlah } = await Swal.fire({ title: "Jumlah Soal", input: "number", inputValue: 5, inputLabel: "Berapa soal yang ingin dibuat?" });
+        if(!jumlah) return;
+        
+        Swal.fire({ title: "AI sedang membuat soal...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        try {
+            const prompt = `Buat ${jumlah} soal pilihan ganda dari kisi-kisi berikut. Format JSON array: [{"teks":"pertanyaan","pilihan":["A. ...","B. ...","C. ...","D. ..."],"jawaban":"A","pembahasan":"..."}]. Kisi-kisi: ${kisi}`;
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ model: "llama3-70b-8192", messages: [{ role: "user", content: prompt }], temperature: 0.7 })
+            });
+            const json = await res.json();
+            let soalBaru = JSON.parse(json.choices[0].message.content);
+            for(let s of soalBaru) {
+                bankSoal.push({ id: Date.now()+Math.random(), teks: s.teks, jenis: "Pilihan Ganda", jawaban: s.jawaban, pembahasan: s.pembahasan, pilihan: s.pilihan });
+            }
+            saveLocalData();
+            Swal.close();
+            toast("success",`${soalBaru.length} soal berhasil dibuat dari kisi-kisi!`);
+            renderGuruDashboardRefresh();
+        } catch(e) { Swal.close(); Swal.fire("Error", "Gagal generate: "+e.message, "error"); }
     }
     
     function buatUjian() {
@@ -241,10 +317,10 @@
     
     // ========== SISWA DASHBOARD ==========
     function renderSiswaDashboard() {
-        return `<div><div style="display:flex; justify-content:space-between; flex-wrap:wrap;"><h2><i class="fas fa-user-graduate"></i> Halo ${currentUser.namaLengkap} (Kelas: ${currentUser.kelas || "Belum bergabung"})</h2><button id="logoutSiswaBtn" class="btn-secondary">Keluar</button></div>
-        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-door-open"></i> Join Kelas</h3><div style="display:flex; gap:10px;"><input id="kodeKelasJoin" placeholder="Masukkan Kode Kelas" style="flex:1;"><button id="joinKelasBtn" class="btn-primary">Gabung</button></div></div>
-        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-tasks"></i> Ujian & Latihan Tersedia</h3><div id="daftarUjianSiswa"></div></div>
-        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-chart-line"></i> Riwayat Nilai</h3><div id="riwayatNilai"></div></div>`;
+        return `<div><div style="display:flex; justify-content:space-between;"><h2><i class="fas fa-user-graduate"></i> Halo ${currentUser.namaLengkap}</h2><button id="logoutSiswaBtn" class="btn-secondary">Keluar</button></div>
+        <div class="card"><h3>Join Kelas</h3><div style="display:flex; gap:10px;"><input id="kodeKelasJoin" placeholder="Kode Kelas"><button id="joinKelasBtn" class="btn-primary">Gabung</button></div></div>
+        <div class="card"><h3>Ujian & Latihan</h3><div id="daftarUjianSiswa"></div></div>
+        <div class="card"><h3>Riwayat Nilai</h3><div id="riwayatNilai"></div></div>`;
     }
     
     async function attachSiswaEvents() {
@@ -258,7 +334,7 @@
             localStorage.setItem("examhub_session", JSON.stringify(currentUser));
             saveLocalData();
             render();
-            toast("success","Berhasil bergabung ke kelas!");
+            toast("success","Berhasil join kelas!");
         });
         renderUjianSiswa();
         await loadRiwayatSiswa();
@@ -266,7 +342,7 @@
     
     function renderUjianSiswa() {
         const div = document.getElementById("daftarUjianSiswa");
-        if(div) div.innerHTML = daftarUjian.map(u => `<div class="ujian-item"><b>${u.nama}</b> (${u.durasi} menit) <button class="mulaiUjianBtn btn-primary" data-id="${u.id}" style="float:right;">${u.jenis === "Ujian" ? "Mulai Ujian" : "Mulai Latihan"}</button></div>`).join("");
+        if(div) div.innerHTML = daftarUjian.map(u => `<div class="ujian-item"><b>${u.nama}</b> (${u.durasi} menit) <button class="mulaiUjianBtn btn-primary" data-id="${u.id}">Mulai</button></div>`).join("");
         document.querySelectorAll(".mulaiUjianBtn").forEach(btn => btn.addEventListener("click", () => mulaiUjian(btn.getAttribute("data-id"))));
     }
     
@@ -274,22 +350,20 @@
         const ujian = daftarUjian.find(u => u.id == ujianId);
         if(!ujian) return;
         const soalTerpilih = bankSoal.filter(s => ujian.daftarIdSoal.includes(s.id));
-        let jawabanUser = new Array(soalTerpilih.length);
+        let jawabanUser = [];
         let waktuTersisa = ujian.durasi * 60;
         
         const timerInterval = setInterval(() => {
             waktuTersisa--;
             const timerEl = document.getElementById("examTimer");
             if(timerEl) timerEl.innerText = `${Math.floor(waktuTersisa/60)}:${(waktuTersisa%60).toString().padStart(2,'0')}`;
-            if(waktuTersisa <= 0) { clearInterval(timerInterval); submitUjian(); }
+            if(waktuTersisa <= 0) clearInterval(timerInterval);
         }, 1000);
         
-        const soalHTML = soalTerpilih.map((s, i) => `<div style="margin-bottom:20px;"><b>${i+1}. ${s.teks}</b><br>${s.jenis === "Pilihan Ganda" ? `<textarea id="jawab${i}" rows="2" placeholder="Jawaban (contoh: A/B/C/D)"></textarea>` : s.jenis === "Benar/Salah" ? `<select id="jawab${i}"><option>Benar</option><option>Salah</option></select>` : `<textarea id="jawab${i}" rows="3" placeholder="Jawaban Anda"></textarea>`}</div>`).join('');
+        const soalHTML = soalTerpilih.map((s, i) => `<div><b>${i+1}. ${s.teks}</b><br><textarea id="jawab${i}" rows="3" placeholder="Jawaban Anda"></textarea></div><hr>`).join('');
         
-        const { value: selesai } = await Swal.fire({ title: ujian.nama, html: `<div class="timer" id="examTimer">${Math.floor(waktuTersisa/60)}:${(waktuTersisa%60).toString().padStart(2,'0')}</div><div style="max-height:500px; overflow-y:auto;">${soalHTML}</div>`, width: "800px", showConfirmButton: true, confirmButtonText: "Selesai", showCancelButton: true, cancelButtonText: "Batal", preConfirm: () => {
-            for(let i=0;i<soalTerpilih.length;i++) {
-                jawabanUser[i] = document.getElementById(`jawab${i}`)?.value || "";
-            }
+        const { value: selesai } = await Swal.fire({ title: ujian.nama, html: `<div class="timer" id="examTimer">${Math.floor(waktuTersisa/60)}:${(waktuTersisa%60).toString().padStart(2,'0')}</div>${soalHTML}`, width: "800px", showConfirmButton: true, confirmButtonText: "Selesai", preConfirm: () => {
+            for(let i=0;i<soalTerpilih.length;i++) jawabanUser[i] = document.getElementById(`jawab${i}`)?.value || "";
             return jawabanUser;
         } });
         
@@ -309,11 +383,11 @@
         const nilaiSaya = dataNilai.filter(row => row.namaSiswa === currentUser.namaLengkap);
         const div = document.getElementById("riwayatNilai");
         if(div && nilaiSaya.length) {
-            let html = `<table style="width:100%;"><tr><th>Ujian</th><th>Nilai</th><th>Tanggal</th></tr>`;
+            let html = `<table><tr><th>Ujian</th><th>Nilai</th><th>Tanggal</th></tr>`;
             nilaiSaya.forEach(n => { html += `<tr><td>${n.namaUjian}</td><td>${n.nilai}</td><td>${n.tanggal.slice(0,10)}</td></tr>`; });
             html += `</table>`;
             div.innerHTML = html;
-        } else if(div) { div.innerHTML = "<i>Belum ada riwayat ujian</i>"; }
+        } else if(div) div.innerHTML = "<i>Belum ada riwayat ujian</i>";
     }
     
     function attachDarkModeToggle() {
