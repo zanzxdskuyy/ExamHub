@@ -29,7 +29,6 @@
         .soal-item, .kelas-item, .ujian-item { background: #f8f9ff; border-radius: 20px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #667eea; }
         body.dark-mode .soal-item, body.dark-mode .kelas-item, body.dark-mode .ujian-item { background: #2a2a38; border-left-color: #764ba2; }
         .timer { font-size: 2rem; font-weight: bold; text-align: center; margin: 15px 0; }
-        .kisi-item { background: #fff3cd; border-left-color: #ffc107; }
         @media (max-width: 768px) { .dashboard-grid { flex-direction: column; } .timer { font-size: 1.5rem; } }
     </style>
 </head>
@@ -40,8 +39,10 @@
 <div class="app-container" id="appRoot"></div>
 
 <script>
-    // ========== KONFIGURASI DEFAULT ==========
-    let SPREADSHEET_ID = localStorage.getItem("examhub_sheet_id") || "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI";
+    // ========== KONFIGURASI DEFAULT (GANTI DENGAN ID SPREADSHEET KAMU) ==========
+    const DEFAULT_SHEET_ID = "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI";  // <-- GANTI INI!
+    
+    let SPREADSHEET_ID = localStorage.getItem("examhub_sheet_id") || DEFAULT_SHEET_ID;
     let GROQ_API_KEY = localStorage.getItem("examhub_groq_key") || "";
     
     let currentUser = null;
@@ -65,9 +66,10 @@
         }
     }
     
-    // === Mengambil data dari Google Sheets via OpenSheet (TANPA API KEY!) ===
     async function fetchAkunSheet() {
-        if(!SPREADSHEET_ID || SPREADSHEET_ID === "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI") throw new Error("SPREADSHEET_ID belum diisi di Settings");
+        if(!SPREADSHEET_ID || SPREADSHEET_ID === "MASUKKAN_ID_SPREADSHEET_ANDA_DISINI") {
+            throw new Error("SPREADSHEET_ID belum diisi. Pergi ke Settings untuk mengisi Google Sheets ID, atau edit kode di const DEFAULT_SHEET_ID");
+        }
         const url = `https://opensheet.elk.sh/${SPREADSHEET_ID}/Akun`;
         const res = await fetch(url);
         if(!res.ok) throw new Error("Gagal mengambil data. Pastikan Sheet 'Akun' ada dan sudah di-share public");
@@ -97,7 +99,6 @@
         Swal.fire({ icon, title, toast: true, position: "top-end", showConfirmButton: false, timer: 2000 });
     }
     
-    // ========== RENDER ENGINE ==========
     let currentView = "login";
     
     function render() {
@@ -152,7 +153,6 @@
         document.getElementById("btnLogin")?.addEventListener("click", handleLogin);
     }
     
-    // ========== SETTINGS PAGE ==========
     function renderSettingsPage() {
         return `<div class="card" style="max-width:700px; margin:auto"><h2><i class="fas fa-sliders-h"></i> Pengaturan API</h2>
             <input id="setSheetId" placeholder="Google Sheets ID" value="${SPREADSHEET_ID}">
@@ -187,7 +187,6 @@
         document.getElementById("backToDashBtn")?.addEventListener("click", () => { currentView = "dashboardGuru"; render(); });
     }
     
-    // ========== GURU DASHBOARD ==========
     function renderGuruDashboard() {
         return `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;"><h2><i class="fas fa-chalkboard-teacher"></i> Dashboard Guru, ${currentUser.namaLengkap}</h2><div><button id="guruSettingsBtn" class="btn-primary"><i class="fas fa-cog"></i> Settings</button> <button id="logoutBtn" class="btn-secondary">Keluar</button></div></div>
         <div class="dashboard-grid"><div class="sidebar card"><h3><i class="fas fa-school"></i> Kelas</h3><button id="buatKelasBtn" class="btn-primary" style="width:100%; margin-bottom:15px;">+ Buat Kelas Baru</button><div id="daftarKelasGuru"></div><hr><h3><i class="fas fa-database"></i> Bank Soal</h3><button id="buatSoalManualBtn" class="btn-secondary" style="width:100%;">+ Soal Manual</button><button id="uploadKisiBtn" class="btn-primary" style="width:100%; margin-top:8px;"><i class="fas fa-robot"></i> AI dari Kisi-Kisi</button><button id="tempelSoalBtn" class="btn-success" style="width:100%; margin-top:8px;"><i class="fas fa-paste"></i> Tempel Soal</button><div id="daftarSoal" style="margin-top:15px; max-height:400px; overflow-y:auto;"></div></div>
@@ -233,7 +232,7 @@
         if(dataNilai.length === 0) { document.getElementById("rekapNilai").innerHTML = "<i>Belum ada data nilai</i>"; return; }
         let html = `<table style="width:100%; border-collapse:collapse;"><tr style="background:#667eea; color:white;"><th>Nama Siswa</th><th>Kelas</th><th>Ujian</th><th>Nilai</th><th>Tanggal</th><tr>`;
         dataNilai.forEach(r => { html += `<tr><td>${r.namaSiswa}${r.namaSiswa}</td><td>${r.kelas}${r.kelas}</td><td>${r.namaUjian}${r.namaUjian}</td><td>${r.nilai}${r.nilai}</td><td>${r.tanggal}${r.tanggal}</td></tr>`; });
-        html += `闭纻`;
+        html += `粥㼿`;
         document.getElementById("rekapNilai").innerHTML = html;
     }
     
@@ -251,13 +250,11 @@
         toast("success","Export CSV berhasil!");
     }
     
-    // === FITUR SOAL MANUAL ===
     async function buatSoalManual() {
         const { value: form } = await Swal.fire({ title: "Buat Soal Baru", html: `<input id="teks" placeholder="Pertanyaan"><select id="jenis"><option>Pilihan Ganda</option><option>Benar/Salah</option><option>Essay</option></select><input id="jawaban" placeholder="Jawaban"><input id="pembahasan" placeholder="Pembahasan">`, preConfirm: () => ({ teks: document.getElementById("teks").value, jenis: document.getElementById("jenis").value, jawaban: document.getElementById("jawaban").value, pembahasan: document.getElementById("pembahasan").value }) });
         if(form && form.teks) { bankSoal.push({ id: Date.now(), teks: form.teks, jenis: form.jenis, jawaban: form.jawaban, pembahasan: form.pembahasan }); saveLocalData(); renderGuruDashboardRefresh(); toast("success","Soal tersimpan"); }
     }
     
-    // === FITUR TEMPEL SOAL (Copy-Paste banyak soal) ===
     async function tempelSoal() {
         const { value: text } = await Swal.fire({ title: "Tempel Soal", input: "textarea", inputPlaceholder: "Format: pertanyaan | jenis | jawaban | pembahasan\nSetiap baris 1 soal, pisahkan dengan tanda |", inputLabel: "Contoh: Apa ibu kota Indonesia? | Pilihan Ganda | Jakarta | Ibukota negara" });
         if(text) {
@@ -276,7 +273,6 @@
         }
     }
     
-    // === FITUR AI DARI KISI-KISI ===
     async function uploadKisiKeAI() {
         if(!GROQ_API_KEY) { toast("error","Masukkan Groq API Key di Settings dulu!"); return; }
         const { value: kisi } = await Swal.fire({ title: "Masukkan Kisi-Kisi", input: "textarea", inputPlaceholder: "Tulis kisi-kisi soal di sini...\nContoh:\n1. Pengertian sel\n2. Fungsi mitokondria\n3. Perbedaan sel hewan dan tumbuhan", inputLabel: "AI akan membuat soal pilihan ganda dari kisi-kisi ini", inputAttributes: { rows: 8 } });
@@ -315,7 +311,6 @@
         });
     }
     
-    // ========== SISWA DASHBOARD ==========
     function renderSiswaDashboard() {
         return `<div><div style="display:flex; justify-content:space-between;"><h2><i class="fas fa-user-graduate"></i> Halo ${currentUser.namaLengkap}</h2><button id="logoutSiswaBtn" class="btn-secondary">Keluar</button></div>
         <div class="card"><h3>Join Kelas</h3><div style="display:flex; gap:10px;"><input id="kodeKelasJoin" placeholder="Kode Kelas"><button id="joinKelasBtn" class="btn-primary">Gabung</button></div></div>
@@ -383,9 +378,9 @@
         const nilaiSaya = dataNilai.filter(row => row.namaSiswa === currentUser.namaLengkap);
         const div = document.getElementById("riwayatNilai");
         if(div && nilaiSaya.length) {
-            let html = `<table><tr><th>Ujian</th><th>Nilai</th><th>Tanggal</th></tr>`;
+            let html = `§able style="width:100%;">\<thead>\<th>Ujian</th><th>Nilai</th><th>Tanggal</th></thead><tbody>`;
             nilaiSaya.forEach(n => { html += `<tr><td>${n.namaUjian}</td><td>${n.nilai}</td><td>${n.tanggal.slice(0,10)}</td></tr>`; });
-            html += `</table>`;
+            html += `</tbody></table>`;
             div.innerHTML = html;
         } else if(div) div.innerHTML = "<i>Belum ada riwayat ujian</i>";
     }
@@ -396,7 +391,6 @@
         if(localStorage.getItem("darkMode") === "true") document.body.classList.add("dark-mode");
     }
     
-    // ========== INIT ==========
     (function init() {
         const session = localStorage.getItem("examhub_session");
         if(session) { try { currentUser = JSON.parse(session); loadLocalData(); currentView = currentUser.peran === "Guru" ? "dashboardGuru" : "dashboardSiswa"; } catch(e) {} }
