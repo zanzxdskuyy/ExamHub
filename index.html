@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>ExamHub | Platform Latihan & Ujian Online</title>
+    <!-- Google Fonts, Font Awesome, Chart.js, SweetAlert2, PDF.js, Mammoth -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            transition: background 0.3s, color 0.2s;
+        }
+
+        body.dark-mode {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        .app-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(2px);
+            border-radius: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            padding: 28px 24px;
+            transition: all 0.2s;
+        }
+
+        body.dark-mode .card {
+            background: #1e1e2f;
+            color: #e0e0e0;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 40px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            border: none;
+            color: white;
+            font-weight: 600;
+            padding: 10px 20px;
+            border-radius: 40px;
+            cursor: pointer;
+        }
+
+        .toggle-dark {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 60px;
+            padding: 10px 18px;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        body.dark-mode .toggle-dark {
+            background: #2d2d44;
+            color: white;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 28px;
+            border: 1px solid #ddd;
+            background: #fefefe;
+            font-size: 14px;
+        }
+
+        body.dark-mode input, body.dark-mode select, body.dark-mode textarea {
+            background: #2c2c3a;
+            color: white;
+            border-color: #555;
+        }
+
+        .dashboard-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .sidebar {
+            flex: 1.2;
+            min-width: 280px;
+        }
+
+        .main-content {
+            flex: 2.8;
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .soal-item, .kelas-item, .ujian-item, .siswa-item {
+            background: #f8f9ff;
+            border-radius: 20px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        body.dark-mode .soal-item, body.dark-mode .kelas-item, 
+        body.dark-mode .ujian-item, body.dark-mode .siswa-item {
+            background: #2a2a38;
+            border-left-color: #764ba2;
+        }
+
+        .timer {
+            font-size: 2rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 15px 0;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid { flex-direction: column; }
+            .card { padding: 18px; }
+            .timer { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="toggle-dark" id="darkModeToggle">
+    <i class="fas fa-moon"></i> <span>Mode Gelap</span>
+</div>
+<div class="app-container" id="appRoot"></div>
+
+<script>
+    // ========== GLOBAL STATE ==========
+    let currentUser = null;
+    let currentSheetId = null, currentApiKey = null, currentGroqKey = null;
+    let bankSoal = [];
+    let daftarUjian = [];
+    let daftarKelasGuru = [];
+    let activeExamInterval = null;
+    let examTabWarningCount = 0;
+    
+    // Helper functions
+    function saveLocalData() {
+        if(currentUser) {
+            localStorage.setItem(`examhub_${currentUser.username}_soal`, JSON.stringify(bankSoal));
+            localStorage.setItem(`examhub_${currentUser.username}_ujian`, JSON.stringify(daftarUjian));
+            localStorage.setItem(`examhub_${currentUser.username}_kelas`, JSON.stringify(daftarKelasGuru));
+        }
+    }
+    
+    function loadLocalData() {
+        if(currentUser){
+            bankSoal = JSON.parse(localStorage.getItem(`examhub_${currentUser.username}_soal`) || '[]');
+            daftarUjian = JSON.parse(localStorage.getItem(`examhub_${currentUser.username}_ujian`) || '[]');
+            daftarKelasGuru = JSON.parse(localStorage.getItem(`examhub_${currentUser.username}_kelas`) || '[]');
+        }
+    }
+    
+    function loadConfig() {
+        currentSheetId = localStorage.getItem("googleSheetId") || "";
+        currentApiKey = localStorage.getItem("googleApiKey") || "";
+        currentGroqKey = localStorage.getItem("groqApiKey") || "";
+    }
+    
+    function saveConfig(sheetId, apiKey, groqKey) {
+        if(sheetId) localStorage.setItem("googleSheetId", sheetId);
+        if(apiKey) localStorage.setItem("googleApiKey", apiKey);
+        if(groqKey) localStorage.setItem("groqApiKey", groqKey);
+        currentSheetId = sheetId; currentApiKey = apiKey; currentGroqKey = groqKey;
+    }
+    
+    async function fetchAkunSheet() {
+        if(!currentSheetId || !currentApiKey) throw new Error("Google Sheets ID/API Key belum diatur oleh Guru di halaman Settings");
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${currentSheetId}/values/Akun?key=${currentApiKey}`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("Gagal mengambil data Akun. Periksa ID Sheet dan API Key.");
+        const data = await res.json();
+        const rows = data.values || [];
+        if(rows.length < 2) return [];
+        const headers = rows[0];
+        const idxUser = headers.indexOf("Username");
+        const idxPass = headers.indexOf("Password");
+        const idxRole = headers.indexOf("Peran");
+        const idxNama = headers.indexOf("Nama Lengkap");
+        const idxKelas = headers.indexOf("Kelas");
+        return rows.slice(1).map(row => ({
+            username: row[idxUser] || "",
+            password: row[idxPass] || "",
+            peran: row[idxRole] || "",
+            namaLengkap: row[idxNama] || "",
+            kelas: row[idxKelas] || ""
+        }));
+    }
+    
+    async function simpanNilaiSheet(namaSiswa, kelas, namaUjian, nilai, tanggal) {
+        if(!currentSheetId || !currentApiKey) return;
+        try {
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${currentSheetId}/values/Nilai:append?valueInputOption=USER_ENTERED&key=${currentApiKey}`;
+            await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: [[namaSiswa, kelas, namaUjian, nilai, tanggal]] }) });
+        } catch(e) { console.warn(e); }
+    }
+    
+    async function ambilNilaiDariSheet() {
+        if(!currentSheetId || !currentApiKey) return [];
+        try {
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${currentSheetId}/values/Nilai?key=${currentApiKey}`;
+            const res = await fetch(url);
+            if(!res.ok) return [];
+            const data = await res.json();
+            return data.values || [];
+        } catch(e) { return []; }
+    }
+    
+    function toast(icon, title) {
+        Swal.fire({ icon, title, toast: true, position: "top-end", showConfirmButton: false, timer: 2000 });
+    }
+    
+    // ========== RENDER ENGINE ==========
+    let currentView = "login";
+    
+    function render() {
+        const root = document.getElementById("appRoot");
+        if(!currentUser){
+            root.innerHTML = renderLoginPage();
+            attachLoginEvents();
+        } else if(currentUser.peran === "Guru"){
+            if(currentView === "settings") root.innerHTML = renderSettingsPage();
+            else root.innerHTML = renderGuruDashboard();
+            attachGuruEvents();
+        } else if(currentUser.peran === "Siswa"){
+            root.innerHTML = renderSiswaDashboard();
+            attachSiswaEvents();
+        }
+        attachDarkModeToggle();
+        if(currentUser && currentView === "settings") attachSettingsEvents();
+    }
+    
+    function renderLoginPage() {
+        return `<div class="card" style="max-width:500px; margin:60px auto;">
+            <div style="text-align:center"><i class="fas fa-graduation-cap" style="font-size:70px; background:linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip:text; background-clip:text; color:transparent;"></i><h1 style="margin-top:10px">ExamHub</h1><p style="color:#666; margin-bottom:30px;">Platform Latihan & Ujian Online</p></div>
+            <div id="loginForm">
+                <input type="text" id="loginUsername" placeholder="Username" autocomplete="off">
+                <input type="password" id="loginPassword" placeholder="Password">
+                <select id="loginPeran">
+                    <option value="Siswa">Siswa</option>
+                    <option value="Guru">Guru</option>
+                </select>
+                <button class="btn-primary" id="btnLogin" style="width:100%"><i class="fas fa-sign-in-alt"></i> Masuk</button>
+            </div>
+            <div style="text-align:center; margin-top:20px; font-size:12px; color:#888;">
+                <i class="fas fa-database"></i> Akun tersimpan di Google Spreadsheet
+            </div>
+        </div>`;
+    }
+    
+    async function handleLogin() {
+        const username = document.getElementById("loginUsername").value.trim();
+        const password = document.getElementById("loginPassword").value;
+        const peran = document.getElementById("loginPeran").value;
+        if(!username || !password) { toast("error","Isi semua field"); return; }
+        try {
+            Swal.fire({ title: "Memproses...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            const akunList = await fetchAkunSheet();
+            const user = akunList.find(acc => acc.username === username && acc.password === password && acc.peran === peran);
+            Swal.close();
+            if(!user) { toast("error","Username/password atau peran salah"); return; }
+            currentUser = { username, namaLengkap: user.namaLengkap, peran: user.peran, kelas: user.kelas || "" };
+            localStorage.setItem("examhub_session", JSON.stringify(currentUser));
+            loadLocalData();
+            loadConfig();
+            currentView = currentUser.peran === "Guru" ? "dashboardGuru" : "dashboardSiswa";
+            render();
+        } catch(e) { Swal.close(); Swal.fire("Error", e.message, "error"); }
+    }
+    
+    function attachLoginEvents() {
+        document.getElementById("btnLogin")?.addEventListener("click", handleLogin);
+        document.getElementById("loginPassword")?.addEventListener("keypress", (e) => { if(e.key === "Enter") handleLogin(); });
+    }
+    
+    // ========== GURU DASHBOARD ==========
+    function renderGuruDashboard() {
+        return `<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;"><h2><i class="fas fa-chalkboard-teacher"></i> Dashboard Guru, ${currentUser.namaLengkap}</h2><div><button id="guruSettingsBtn" class="btn-primary"><i class="fas fa-cog"></i> Settings</button> <button id="logoutBtn" class="btn-secondary">Keluar</button></div></div>
+        <div class="dashboard-grid"><div class="sidebar card"><h3><i class="fas fa-school"></i> Kelas</h3><button id="buatKelasBtn" class="btn-primary" style="width:100%; margin-bottom:15px;">+ Buat Kelas Baru</button><div id="daftarKelasGuru"></div><hr><h3><i class="fas fa-database"></i> Bank Soal</h3><button id="buatSoalManualBtn" class="btn-secondary" style="width:100%;">+ Soal Manual</button><button id="uploadFileBtn" class="btn-primary" style="width:100%; margin-top:8px;"><i class="fas fa-robot"></i> Generate AI</button><div id="daftarSoal" style="margin-top:15px;"></div></div>
+        <div class="main-content card"><h3><i class="fas fa-pen-alt"></i> Ujian & Latihan</h3><button id="buatUjianBtn" class="btn-primary">Buat Ujian/Latihan</button><div id="daftarUjianGuru" style="margin-top:15px;"></div><hr><h3><i class="fas fa-chart-line"></i> Rekap Nilai</h3><button id="exportExcelBtn" class="btn-secondary"><i class="fas fa-file-excel"></i> Export Excel</button><div id="rekapNilai" style="margin-top:15px; overflow-x:auto;"></div></div></div>`;
+    }
+    
+    function attachGuruEvents() {
+        document.getElementById("logoutBtn")?.addEventListener("click", () => { localStorage.removeItem("examhub_session"); currentUser = null; render(); });
+        document.getElementById("guruSettingsBtn")?.addEventListener("click", () => { currentView = "settings"; render(); });
+        document.getElementById("buatKelasBtn")?.addEventListener("click", async () => {
+            const { value: namaKelas } = await Swal.fire({ title: "Nama Kelas", input: "text", inputPlaceholder: "Contoh: XII IPA 1" });
+            if(namaKelas) {
+                const kode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                daftarKelasGuru.push({ kode, namaKelas, guruPembuat: currentUser.username, daftarSiswaUsernames: [] });
+                saveLocalData();
+                renderGuruDashboardRefresh();
+            }
+        });
+        document.getElementById("buatSoalManualBtn")?.addEventListener("click", buatSoalManual);
+        document.getElementById("uploadFileBtn")?.addEventListener("click", uploadFileAI);
+        document.getElementById("buatUjianBtn")?.addEventListener("click", buatUjian);
+        document.getElementById("exportExcelBtn")?.addEventListener("click", () => { if(currentSheetId) window.open(`https://docs.google.com/spreadsheets/d/${currentSheetId}/export?format=xlsx`); else toast("error","Sheet ID belum diatur"); });
+        renderGuruDashboardRefresh();
+    }
+    
+    async function renderGuruDashboardRefresh() {
+        const kelasDiv = document.getElementById("daftarKelasGuru");
+        if(kelasDiv) kelasDiv.innerHTML = daftarKelasGuru.map(k => `<div class="kelas-item"><b><i class="fas fa-key"></i> ${k.kode}</b> - ${k.namaKelas}<br><small>Siswa: ${k.daftarSiswaUsernames.join(", ") || "Belum ada"}</small></div>`).join("");
+        
+        const soalDiv = document.getElementById("daftarSoal");
+        if(soalDiv) soalDiv.innerHTML = bankSoal.map((s, i) => `<div class="soal-item"><b>${s.teks.substring(0, 50)}...</b> [${s.jenis}] <button class="hapusSoalBtn btn-secondary" data-id="${s.id}" style="padding:4px 12px; margin-top:5px;">Hapus</button></div>`).join("");
+        document.querySelectorAll(".hapusSoalBtn").forEach(btn => btn.addEventListener("click", (e) => { bankSoal = bankSoal.filter(s => s.id != btn.getAttribute("data-id")); saveLocalData(); renderGuruDashboardRefresh(); }));
+        
+        const ujianDiv = document.getElementById("daftarUjianGuru");
+        if(ujianDiv) ujianDiv.innerHTML = daftarUjian.map(u => `<div class="ujian-item"><b>${u.nama}</b> (${u.durasi} menit) <button class="lihatNilaiBtn btn-secondary" data-nama="${u.nama}" style="float:right;">Lihat Nilai</button></div>`).join("");
+        document.querySelectorAll(".lihatNilaiBtn").forEach(btn => btn.addEventListener("click", async () => { await loadRekapNilai(btn.getAttribute("data-nama")); }));
+        
+        await loadRekapNilai();
+    }
+    
+    async function loadRekapNilai(filterUjian = null) {
+        const dataNilai = await ambilNilaiDariSheet();
+        if(dataNilai.length < 2) { document.getElementById("rekapNilai").innerHTML = "<i>Belum ada data nilai</i>"; return; }
+        let rows = dataNilai.slice(1);
+        if(filterUjian) rows = rows.filter(r => r[2] === filterUjian);
+        let html = `<table style="width:100%; border-collapse:collapse;"><tr style="background:#667eea; color:white;"><th>Nama Siswa</th><th>Kelas</th><th>Ujian</th><th>Nilai</th><th>Tanggal</th></tr>`;
+        rows.forEach(r => { if(r.length>=4) html += `<tr><td>${r[0]||'-'}</td><td>${r[1]||'-'}</td><td>${r[2]||'-'}</td><td>${r[3]||'-'}</td><td>${r[4]||'-'}</td></tr>`; });
+        html += `</table>`;
+        document.getElementById("rekapNilai").innerHTML = html;
+    }
+    
+    async function buatSoalManual() {
+        const { value: form } = await Swal.fire({ title: "Buat Soal Baru", html: `<input id="teks" placeholder="Pertanyaan"><select id="jenis"><option>Pilihan Ganda</option><option>Benar/Salah</option><option>Essay</option></select><input id="jawaban" placeholder="Jawaban"><input id="pembahasan" placeholder="Pembahasan">`, preConfirm: () => ({ teks: document.getElementById("teks").value, jenis: document.getElementById("jenis").value, jawaban: document.getElementById("jawaban").value, pembahasan: document.getElementById("pembahasan").value }) });
+        if(form && form.teks) { bankSoal.push({ id: Date.now(), teks: form.teks, jenis: form.jenis, jawaban: form.jawaban, pembahasan: form.pembahasan }); saveLocalData(); renderGuruDashboardRefresh(); toast("success","Soal tersimpan"); }
+    }
+    
+    async function uploadFileAI() {
+        if(!currentGroqKey) { toast("error","Set Groq API Key di Settings"); return; }
+        const { value: file } = await Swal.fire({ title: "Upload File", input: "file", inputAttributes: { accept: ".docx,.pdf,.txt" } });
+        if(!file) return;
+        let text = "";
+        Swal.fire({ title: "Membaca file...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        try {
+            if(file.type === "application/pdf") { const arrayBuffer = await file.arrayBuffer(); const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise; for(let i=1;i<=pdf.numPages;i++) { const page = await pdf.getPage(i); const content = await page.getTextContent(); text += content.items.map(t=>t.str).join(" "); } }
+            else if(file.name.endsWith(".docx")) { const arrayBuffer = await file.arrayBuffer(); const result = await mammoth.extractRawText({ arrayBuffer }); text = result.value; }
+            else text = await file.text();
+            if(!text.trim()) throw new Error("Teks tidak terbaca");
+            Swal.close();
+            const { value: opt } = await Swal.fire({ title: "Pengaturan Generate", html: `<input id="jml" placeholder="Jumlah soal" value="3"><select id="tingkat"><option>Mudah</option><option>Sedang</option><option>Sulit</option></select>`, preConfirm: () => ({ jml: parseInt(document.getElementById("jml").value), tingkat: document.getElementById("tingkat").value }) });
+            if(!opt) return;
+            Swal.fire({ title: "AI sedang bekerja...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            const prompt = `Buat ${opt.jml} soal pilihan ganda dari teks berikut. Format JSON array: [{"teks":"pertanyaan","pilihan":["A. ...","B. ...","C. ...","D. ..."],"jawaban":"A","pembahasan":"..."}]. Teks: ${text.substring(0, 4000)}`;
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${currentGroqKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "llama3-70b-8192", messages: [{ role: "user", content: prompt }], temperature: 0.7 }) });
+            const json = await res.json();
+            const hasil = JSON.parse(json.choices[0].message.content);
+            for(let s of hasil) bankSoal.push({ id: Date.now()+Math.random(), teks: s.teks, jenis: "Pilihan Ganda", jawaban: s.jawaban, pembahasan: s.pembahasan, pilihan: s.pilihan });
+            saveLocalData();
+            Swal.close();
+            toast("success","Soal berhasil di-generate!");
+            renderGuruDashboardRefresh();
+        } catch(e) { Swal.close(); Swal.fire("Error", "Gagal generate AI: "+e.message, "error"); }
+    }
+    
+    function buatUjian() {
+        Swal.fire({ title: "Buat Ujian/Latihan", html: `<input id="namaUjian" placeholder="Nama Ujian"><input id="durasi" placeholder="Durasi (menit)"><select id="tipe"><option>Ujian</option><option>Latihan</option></select>`, preConfirm: () => ({ nama: document.getElementById("namaUjian").value, durasi: parseInt(document.getElementById("durasi").value), tipe: document.getElementById("tipe").value }) }).then(res => {
+            if(res.value && res.value.nama && res.value.durasi) {
+                daftarUjian.push({ id: Date.now(), nama: res.value.nama, durasi: res.value.durasi, jenis: res.value.tipe, daftarIdSoal: bankSoal.map(s=>s.id), tanggal: new Date().toISOString() });
+                saveLocalData();
+                renderGuruDashboardRefresh();
+                toast("success","Ujian berhasil dibuat");
+            }
+        });
+    }
+    
+    // ========== SISWA DASHBOARD ==========
+    function renderSiswaDashboard() {
+        return `<div><div style="display:flex; justify-content:space-between; flex-wrap:wrap;"><h2><i class="fas fa-user-graduate"></i> Halo ${currentUser.namaLengkap} (Kelas: ${currentUser.kelas || "Belum bergabung"})</h2><button id="logoutSiswaBtn" class="btn-secondary">Keluar</button></div>
+        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-door-open"></i> Join Kelas</h3><div style="display:flex; gap:10px;"><input id="kodeKelasJoin" placeholder="Masukkan Kode Kelas" style="flex:1;"><button id="joinKelasBtn" class="btn-primary">Gabung</button></div></div>
+        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-tasks"></i> Ujian & Latihan Tersedia</h3><div id="daftarUjianSiswa"></div></div>
+        <div class="card" style="margin-top:20px;"><h3><i class="fas fa-chart-line"></i> Perkembangan Nilai</h3><canvas id="chartPerkembangan" height="200"></canvas><div id="leaderboard" style="margin-top:20px;"></div></div>`;
+    }
+    
+    async function attachSiswaEvents() {
+        document.getElementById("logoutSiswaBtn")?.addEventListener("click", () => { localStorage.removeItem("examhub_session"); currentUser = null; render(); });
+        document.getElementById("joinKelasBtn")?.addEventListener("click", async () => {
+            const kode = document.getElementById("kodeKelasJoin").value.trim().toUpperCase();
+            const kelasTersedia = daftarKelasGuru.find(k => k.kode === kode);
+            if(!kelasTersedia) { toast("error","Kode kelas tidak valid"); return; }
+            if(!kelasTersedia.daftarSiswaUsernames.includes(currentUser.username)) kelasTersedia.daftarSiswaUsernames.push(currentUser.username);
+            currentUser.kelas = kelasTersedia.namaKelas;
+            localStorage.setItem("examhub_session", JSON.stringify(currentUser));
+            saveLocalData();
+            render();
+            toast("success","Berhasil bergabung ke kelas!");
+        });
+        renderUjianSiswa();
+        await loadRiwayatDanGrafik();
+    }
+    
+    function renderUjianSiswa() {
+        const div = document.getElementById("daftarUjianSiswa");
+        if(div) div.innerHTML = daftarUjian.map(u => `<div class="ujian-item"><b>${u.nama}</b> (${u.durasi} menit) <button class="mulaiUjianBtn btn-primary" data-id="${u.id}" style="float:right;">${u.jenis === "Ujian" ? "Mulai Ujian" : "Mulai Latihan"}</button></div>`).join("");
+        document.querySelectorAll(".mulaiUjianBtn").forEach(btn => btn.addEventListener("click", () => mulaiUjian(btn.getAttribute("data-id"))));
+    }
+    
+    async function mulaiUjian(ujianId) {
+        const ujian = daftarUjian.find(u => u.id == ujianId);
+        if(!ujian) return;
+        const soalTerpilih = bankSoal.filter(s => ujian.daftarIdSoal.includes(s.id));
+        let jawabanUser = new Array(soalTerpilih.length);
+        let waktuTersisa = ujian.durasi * 60;
+        examTabWarningCount = 0;
+        
+        const blurHandler = () => { examTabWarningCount++; if(examTabWarningCount >= 2) toast("warning","Peringatan: Anda keluar tab! Akan dilaporkan ke guru."); };
+        window.addEventListener("blur", blurHandler);
+        
+        const timerInterval = setInterval(() => {
+            waktuTersisa--;
+            const timerEl = document.getElementById("examTimer");
+            if(timerEl) timerEl.innerText = `${Math.floor(waktuTersisa/60)}:${(waktuTersisa%60).toString().padStart(2,'0')}`;
+            if(waktuTersisa <= 0) { clearInterval(timerInterval); submitUjian(); }
+        }, 1000);
+        
+        const soalHTML = soalTerpilih.map((s, i) => `<div style="margin-bottom:20px;"><b>${i+1}. ${s.teks}</b><br>${s.jenis === "Pilihan Ganda" ? (s.pilihan || []).map(p => `<label><input type="radio" name="q${i}" value="${p[0]}"> ${p}</label><br>`).join('') : s.jenis === "Benar/Salah" ? `<select id="jawab${i}"><option>Benar</option><option>Salah</option></select>` : `<textarea id="jawab${i}" rows="3" placeholder="Jawaban Anda"></textarea>`}</div>`).join('');
+        
+        const { value: selesai } = await Swal.fire({ title: ujian.nama, html: `<div class="timer" id="examTimer">${Math.floor(waktuTersisa/60)}:${(waktuTersisa%60).toString().padStart(2,'0')}</div><div style="max-height:500px; overflow-y:auto;">${soalHTML}</div>`, width: "800px", showConfirmButton: true, confirmButtonText: "Selesai", showCancelButton: true, cancelButtonText: "Batal", preConfirm: () => {
+            for(let i=0;i<soalTerpilih.length;i++) {
+                if(soalTerpilih[i].jenis === "Pilihan Ganda") jawabanUser[i] = document.querySelector(`input[name="q${i}"]:checked`)?.value || "";
+                else jawabanUser[i] = document.getElementById(`jawab${i}`)?.value || "";
+            }
+            return jawabanUser;
+        } });
+        
+        clearInterval(timerInterval);
+        window.removeEventListener("blur", blurHandler);
+        if(selesai) {
+            let benar = 0;
+            soalTerpilih.forEach((soal, i) => { if(selesai[i] && selesai[i].toLowerCase() === soal.jawaban.toLowerCase()) benar++; });
+            const nilai = (benar / soalTerpilih.length) * 100;
+            await simpanNilaiSheet(currentUser.namaLengkap, currentUser.kelas, ujian.nama, nilai.toFixed(0), new Date().toISOString());
+            Swal.fire("Selesai!", `Nilai Anda: ${nilai.toFixed(0)}`, "success");
+            render();
+        }
+    }
+    
+    async function loadRiwayatDanGrafik() {
+        const dataNilai = await ambilNilaiDariSheet();
+        const nilaiSaya = dataNilai.filter(row => row[0] === currentUser.namaLengkap);
+        const labels = nilaiSaya.map(n => n[2]);
+        const scores = nilaiSaya.map(n => parseInt(n[3]));
+        const ctx = document.getElementById("chartPerkembangan")?.getContext("2d");
+        if(ctx && labels.length) new Chart(ctx, { type: "line", data: { labels, datasets: [{ label: "Nilai Saya", data: scores, borderColor: "#667eea", tension: 0.3 }] } });
+        
+        const semuaSiswa = dataNilai.filter(row => row[1] === currentUser.kelas);
+        const leaderMap = new Map();
+        semuaSiswa.forEach(row => { if(!leaderMap.has(row[0]) || parseInt(row[3]) > leaderMap.get(row[0])) leaderMap.set(row[0], parseInt(row[3])); });
+        const leaderboard = Array.from(leaderMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0,5);
+        const leaderDiv = document.getElementById("leaderboard");
+        if(leaderDiv) leaderDiv.innerHTML = `<h4>🏆 Leaderboard Kelas</h4>` + leaderboard.map(([nama, nilai], i) => `<div>${i+1}. ${nama} : ${nilai}</div>`).join("");
+    }
+    
+    // ========== SETTINGS GURU ==========
+    function renderSettingsPage() {
+        return `<div class="card" style="max-width:700px; margin:auto"><h2><i class="fas fa-sliders-h"></i> Pengaturan API</h2><input id="setSheetId" placeholder="Google Sheets ID" value="${currentSheetId||''}"><input id="setApiKey" placeholder="Google API Key" value="${currentApiKey||''}"><input id="setGroqKey" placeholder="Groq API Key" value="${currentGroqKey||''}"><div style="display:flex; gap:10px;"><button id="testKoneksiBtn" class="btn-primary">Test Koneksi</button><button id="saveSettingsBtn" class="btn-primary">Simpan</button><button id="backToDashBtn" class="btn-secondary">Kembali</button></div></div>`;
+    }
+    
+    function attachSettingsEvents() {
+        document.getElementById("saveSettingsBtn")?.addEventListener("click", () => {
+            const sheet = document.getElementById("setSheetId").value.trim();
+            const key = document.getElementById("setApiKey").value.trim();
+            const grok = document.getElementById("setGroqKey").value.trim();
+            saveConfig(sheet, key, grok);
+            toast("success","Pengaturan disimpan");
+            currentView = "dashboardGuru";
+            render();
+        });
+        document.getElementById("testKoneksiBtn")?.addEventListener("click", async () => {
+            try { await fetchAkunSheet(); toast("success","Koneksi Google Sheets berhasil!"); } catch(e) { Swal.fire("Gagal", e.message, "error"); }
+        });
+        document.getElementById("backToDashBtn")?.addEventListener("click", () => { currentView = "dashboardGuru"; render(); });
+    }
+    
+    function attachDarkModeToggle() {
+        const toggle = document.getElementById("darkModeToggle");
+        if(toggle) toggle.onclick = () => { document.body.classList.toggle("dark-mode"); localStorage.setItem("darkMode", document.body.classList.contains("dark-mode")); };
+        if(localStorage.getItem("darkMode") === "true") document.body.classList.add("dark-mode");
+    }
+    
+    // ========== INIT ==========
+    (function init() {
+        const session = localStorage.getItem("examhub_session");
+        if(session) { try { currentUser = JSON.parse(session); loadLocalData(); loadConfig(); currentView = currentUser.peran === "Guru" ? "dashboardGuru" : "dashboardSiswa"; } catch(e) {} }
+        render();
+    })();
+</script>
+</body>
+</html>
